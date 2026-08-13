@@ -23,6 +23,7 @@ type ClientMode int
 const (
 	ClientModeApiKey ClientMode = iota + 1
 	ClientModeAKSK
+	ClientModeIRSA
 )
 
 type Adaptor struct {
@@ -89,6 +90,12 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if info.ChannelOtherSettings.AwsKeyType == dto.AwsKeyTypeIRSA {
+		// 与 AK/SK 一样走 AWS SDK，由 SDK 用默认凭证链解析出的身份做 SigV4 签名，
+		// 请求 URL 交给 SDK 自己拼。
+		a.ClientMode = ClientModeIRSA
+		return "", nil
+	}
 	if info.ChannelOtherSettings.AwsKeyType == dto.AwsKeyTypeApiKey {
 		awsModelId := getAwsModelID(info.UpstreamModelName)
 		a.ClientMode = ClientModeApiKey

@@ -63,6 +63,10 @@ type AwsKeyType string
 const (
 	AwsKeyTypeAKSK   AwsKeyType = "ak_sk" // 默认
 	AwsKeyTypeApiKey AwsKeyType = "api_key"
+	// AwsKeyTypeIRSA 不在渠道里保存任何静态凭证，改由 AWS 默认凭证链解析
+	// （EKS IRSA / Pod Identity、EC2 实例角色、ECS 任务角色、环境变量、~/.aws profile），
+	// 渠道密钥字段只填 region。
+	AwsKeyTypeIRSA AwsKeyType = "irsa"
 )
 
 type ChannelOtherSettings struct {

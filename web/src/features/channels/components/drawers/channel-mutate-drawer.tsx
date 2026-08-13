@@ -2314,6 +2314,12 @@ export function ChannelMutateDrawer({
                                           value: 'api_key',
                                           label: t('API Key'),
                                         },
+                                        {
+                                          value: 'irsa',
+                                          label: t(
+                                            'IRSA / IAM Role (no static key)'
+                                          ),
+                                        },
                                       ]}
                                       onValueChange={field.onChange}
                                       value={field.value}
@@ -2335,15 +2341,24 @@ export function ChannelMutateDrawer({
                                           <SelectItem value='api_key'>
                                             {t('API Key')}
                                           </SelectItem>
+                                          <SelectItem value='irsa'>
+                                            {t(
+                                              'IRSA / IAM Role (no static key)'
+                                            )}
+                                          </SelectItem>
                                         </SelectGroup>
                                       </SelectContent>
                                     </Select>
                                     <FormDescription>
                                       {field.value === 'api_key'
                                         ? t('API Key mode: use APIKey|Region')
-                                        : t(
-                                            'AK/SK mode: use AccessKey|SecretAccessKey|Region'
-                                          )}
+                                        : field.value === 'irsa'
+                                          ? t(
+                                              'IRSA mode: no static key is stored. Fill in the region only; credentials come from the AWS default credential chain (EKS IRSA / Pod Identity, EC2 instance role, ECS task role, environment variables, ~/.aws profile)'
+                                            )
+                                          : t(
+                                              'AK/SK mode: use AccessKey|SecretAccessKey|Region'
+                                            )}
                                     </FormDescription>
                                     <FormMessage />
                                   </FormItem>
@@ -2922,6 +2937,21 @@ export function ChannelMutateDrawer({
                                   if (isEditing) {
                                     keyPlaceholder = t(
                                       'Leave empty to keep existing key'
+                                    )
+                                  } else if (
+                                    currentType === 33 &&
+                                    awsKeyType === 'irsa' &&
+                                    isBatchMode
+                                  ) {
+                                    keyPlaceholder = t(
+                                      'Enter Region, one per line, e.g. us-east-1'
+                                    )
+                                  } else if (
+                                    currentType === 33 &&
+                                    awsKeyType === 'irsa'
+                                  ) {
+                                    keyPlaceholder = t(
+                                      'Enter Region, e.g. us-east-1'
                                     )
                                   } else if (
                                     currentType === 33 &&

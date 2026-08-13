@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -454,5 +455,97 @@ func TestAwsStreamHandlerStopsAtClientCancellationAndKeepsPartialBillingUsage(t 
 		require.Error(t, producerErr)
 	case <-time.After(5 * time.Second):
 		t.Fatal("upstream producer did not observe the closed stream")
+	}
+}
+
+func TestNewAwsClientResolvesCredentialsPerKeyType(t *testing.T) {
+	// IRSA 模式下凭证来自 AWS 默认凭证链，也就是进程环境。把凭证放进环境变量、
+	// 把配置文件指向空目录，链上第一个命中的就是静态凭证：测试期间既不读开发机
+	// 上真实的 ~/.aws，也不会发出任何网络请求。
+	t.Setenv("AWS_ACCESS_KEY_ID", "irsa-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "irsa-secret-key")
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "credentials"))
+
+	tests := []struct {
+		name       string
+		keyType    dto.AwsKeyType
+		apiKey     string
+		wantRegion string
+		wantErr    bool
+	}{
+		{
+			name:       "irsa key holds the region only",
+			keyType:    dto.AwsKeyTypeIRSA,
+			apiKey:     "us-east-1",
+			wantRegion: "us-east-1",
+		},
+		{
+			name:       "irsa region tolerates surrounding whitespace",
+			keyType:    dto.AwsKeyTypeIRSA,
+			apiKey:     "  us-west-2  ",
+			wantRegion: "us-west-2",
+		},
+		{
+			name:    "irsa rejects an empty region",
+			keyType: dto.AwsKeyTypeIRSA,
+			apiKey:  "   ",
+			wantErr: true,
+		},
+		{
+			name:       "ak/sk key keeps the region in the third segment",
+			keyType:    dto.AwsKeyTypeAKSK,
+			apiKey:     "access-key|secret-key|eu-central-1",
+			wantRegion: "eu-central-1",
+		},
+		{
+			name:       "api key keeps the region in the second segment",
+			keyType:    dto.AwsKeyTypeApiKey,
+			apiKey:     "bedrock-api-key-token|ap-southeast-1",
+			wantRegion: "ap-southeast-1",
+		},
+		{
+			name:    "ak/sk rejects a key with no region segment",
+			keyType: dto.AwsKeyTypeAKSK,
+			apiKey:  "access-key",
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			c := newAwsTestContext(httptest.NewRecorder(), context.Background())
+
+			info := newAwsTestRelayInfo()
+			info.ApiKey = test.apiKey
+			info.ChannelOtherSettings.AwsKeyType = test.keyType
+
+			client, err := newAwsClient(c, info)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, client)
+			assert.Equal(t, test.wantRegion, client.Options().Region)
+
+			// AK/SK 与 IRSA 都由 SDK 做 SigV4 签名，必须解析出可用凭证；
+			// API Key 模式走 bearer token，没有凭证提供者。
+			if test.keyType == dto.AwsKeyTypeApiKey {
+				assert.Nil(t, client.Options().Credentials)
+				require.NotNil(t, client.Options().BearerAuthTokenProvider)
+				return
+			}
+
+			require.NotNil(t, client.Options().Credentials)
+			creds, err := client.Options().Credentials.Retrieve(context.Background())
+			require.NoError(t, err)
+			if test.keyType == dto.AwsKeyTypeIRSA {
+				assert.Equal(t, "irsa-access-key", creds.AccessKeyID)
+			} else {
+				assert.Equal(t, "access-key", creds.AccessKeyID)
+			}
+		})
 	}
 }

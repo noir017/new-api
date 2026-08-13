@@ -66,6 +66,23 @@ func newAwsClient(c *gin.Context, info *relaycommon.RelayInfo) (*bedrockruntime.
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
 
+	// IRSA 模式下渠道里没有静态凭证，密钥字段整个就是 region。
+	if info.ChannelOtherSettings.AwsKeyType == dto.AwsKeyTypeIRSA {
+		region := strings.TrimSpace(info.ApiKey)
+		if region == "" {
+			return nil, errors.New("invalid aws key, IRSA mode expects the region, e.g. us-east-1")
+		}
+		creds, err := getDefaultChainCredentials(c.Request.Context(), region, info.ChannelSetting.Proxy, httpClient)
+		if err != nil {
+			return nil, err
+		}
+		return bedrockruntime.New(bedrockruntime.Options{
+			Region:      region,
+			Credentials: creds,
+			HTTPClient:  httpClient,
+		}), nil
+	}
+
 	awsSecret := strings.Split(info.ApiKey, "|")
 	var client *bedrockruntime.Client
 	switch len(awsSecret) {
