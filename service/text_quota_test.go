@@ -1147,3 +1147,33 @@ func TestAppendToolSurchargeLogInfoWritesOnlyStructuredFields(t *testing.T) {
 	assert.NotContains(t, other, "image_generation_call")
 	assert.NotContains(t, other, "image_generation_call_price")
 }
+
+func TestLogTotalTokensFromSummary(t *testing.T) {
+	// OpenAI 语义：PromptTokens 已包含缓存，总 token 不应再加缓存部分，避免重复计算。
+	openAISummary := textQuotaSummary{
+		PromptTokens:          1000,
+		CompletionTokens:      200,
+		CacheTokens:           800,
+		CacheCreationTokens:   100,
+		IsClaudeUsageSemantic: false,
+	}
+	require.Equal(t, 1200, logTotalTokensFromSummary(openAISummary))
+
+	// Anthropic 语义：PromptTokens 仅表示 fresh token，需要把 cache_read/cache_creation 加回。
+	claudeSummary := textQuotaSummary{
+		PromptTokens:          100,
+		CompletionTokens:      50,
+		CacheTokens:           200,
+		CacheCreationTokens:   30,
+		IsClaudeUsageSemantic: true,
+	}
+	assert.Equal(t, 380, logTotalTokensFromSummary(claudeSummary))
+
+	// Anthropic 语义但无缓存：结果与 PromptTokens + CompletionTokens 相同。
+	claudeNoCacheSummary := textQuotaSummary{
+		PromptTokens:          100,
+		CompletionTokens:      50,
+		IsClaudeUsageSemantic: true,
+	}
+	assert.Equal(t, 150, logTotalTokensFromSummary(claudeNoCacheSummary))
+}
