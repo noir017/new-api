@@ -1,0 +1,95 @@
+# Build this fork's patched new-api and push it to GHCR.
+#
+# Why a separate workflow rather than docker-image-branch.yml: the upstream
+# workflow hardcodes calciumion/new-api on Docker Hub and needs DOCKERHUB_*
+# secrets we neither have nor should have. This one pushes to
+# ghcr.io/<owner>/new-api using the built-in GITHUB_TOKEN, so it works on a
+# fork with no secrets configured.
+#
+# amd64 only — that is what the deployment target (an unraid host) runs.
+name: Publish patched image (GHCR)
+
+on:
+  # Push trigger, not workflow_dispatch alone: a dispatchable workflow must
+  # exist on the repository's default branch, and this patch deliberately does
+  # not touch main.
+  push:
+    branches:
+      - "fix/dashboard-cache-token-6233"
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch or tag to build"
+        required: true
+        type: string
+      tag:
+        description: "Image tag to publish (e.g. rc.35-cachefix)"
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Build & push amd64 to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: Resolve image tag
+        id: imgtag
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="v1.0.0-rc.35-cachefix"
+          fi
+          echo "value=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Publishing tag: ${TAG}"
+
+      - name: Write VERSION
+        run: |
+          # The Dockerfile reads VERSION and stamps it into common.Version, so
+          # the running gateway reports what it actually is, patch marker included.
+          echo "${{ steps.imgtag.outputs.value }}" > VERSION
+          cat VERSION
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase owner
+        id: owner
+        run: echo "value=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ steps.owner.outputs.value }}/new-api:${{ steps.imgtag.outputs.value }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Output digest
+        run: |
+          {
+            echo "### Image"
+            echo '```'
+            echo "ghcr.io/${{ steps.owner.outputs.value }}/new-api:${{ steps.imgtag.outputs.value }}"
+            echo "${{ steps.build.outputs.digest }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
