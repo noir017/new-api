@@ -534,6 +534,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	attachQuotaSaturation(ctx, relayInfo, other)
 	logTotalTokens := logTotalTokensFromSummary(summary)
+	if logTotalTokens > 0 {
+		common.SysLog(fmt.Sprintf("[cachefix] model=%s semantic=%s isClaude=%v pt=%d ct=%d cache=%d cacheCreate=%d total=%d",
+			summary.ModelName, summary.UsageSemantic, summary.IsClaudeUsageSemantic,
+			summary.PromptTokens, summary.CompletionTokens, summary.CacheTokens, summary.CacheCreationTokens, logTotalTokens))
+	}
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
