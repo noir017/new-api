@@ -6,7 +6,8 @@
 # ghcr.io/<owner>/new-api using the built-in GITHUB_TOKEN, so it works on a
 # fork with no secrets configured.
 #
-# amd64 only — that is what the deployment target (an unraid host) runs.
+# amd64 + arm64: unraid (amd64) and the oracle arm64 pod both consume the
+# combined image, which needs the base at both platforms.
 name: Publish patched image (GHCR)
 
 on:
@@ -59,6 +60,9 @@ jobs:
           echo "${{ steps.imgtag.outputs.value }}" > VERSION
           cat VERSION
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@d5967e4707d1080ffae9d4967e728b3af4f35f2b # v3.7.0
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
@@ -78,7 +82,7 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/${{ steps.owner.outputs.value }}/new-api:${{ steps.imgtag.outputs.value }}
           cache-from: type=gha
